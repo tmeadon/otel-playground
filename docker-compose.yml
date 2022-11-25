@@ -20,19 +20,23 @@ services:
       - "16686:16686"
       - "16685:16685"
       - "4317:4317"
-      - "4318:4318"
+      # - "4318:4318"
   api-1:
     networks:
       - backend
     image: api-1:latest
     ports:
       - "81:80"
+    depends_on:
+      - otelcol
   api-2:
     networks:
       - backend
     image: api-2:latest
     ports:
       - "82:80"
+    depends_on:
+      - otelcol
   # zipkin:
   #   image: openzipkin/zipkin:latest
   #   networks:
@@ -60,5 +64,29 @@ services:
   #     - "./prometheus.yml:/etc/prometheus/prometheus.yml"
   #   ports:
   #     - "9090:9090"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+    restart: always
+    command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
+    volumes:
+      - ./otelcol-config.yml:/etc/otelcol-config.yml
+      - ./otelcol-config-extras.yml:/etc/otelcol-config-extras.yml
+      - ./test/:/mnt/test/:rw
+    ports:
+      - "4317"          # OTLP over gRPC receiver
+      - "4318:4318"     # OTLP over HTTP receiver
+      - "9464"          # Prometheus exporter
+      - "8888"          # metrics endpoint
+    depends_on:
+      - jaeger
+    networks:
+      - backend
+
 networks:
   backend:

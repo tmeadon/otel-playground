@@ -1,0 +1,33 @@
+exporters:
+  azuredataexplorer:
+    cluster_uri: "x"
+    # Client Id
+    application_id: "x"
+    # The client secret for the client
+    application_key: "x"
+    # The tenant
+    tenant_id: "x"
+    # database for the logs
+    db_name: "otel"
+    metrics_table_name: "otel_metrics"
+    logs_table_name: "otel_logs"
+    traces_table_name: "otel_traces"
+    ingestion_type : "managed"
+
+    
+service:
+  telemetry:
+    logs:
+      level: debug
+      initial_fields:
+        service: my-instance
+  pipelines:
+    traces:
+      exporters: [azuredataexplorer, otlp]
+      receivers: [otlp]
+    metrics:
+      exporters: [azuredataexplorer]
+      receivers: [otlp]
+    logs:
+      exporters: [ azuredataexplorer]
+      receivers: [otlp]

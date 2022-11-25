@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using System.Net.Http;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Logs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,32 +21,103 @@ builder.Services.AddOpenTelemetryTracing(builder =>
         .AddAspNetCoreInstrumentation()
         .AddSqlClientInstrumentation()
         .AddOtlpExporter(opts => { 
-            opts.Endpoint = new Uri("http://jaeger:4317");
+            opts.Endpoint = new Uri("http://otelcol:4317");
+            opts.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
         });
 });
 
-var app = builder.Build();
+builder.Services.AddOpenTelemetryMetrics(builder =>
+{
+    builder.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName: serviceName, serviceVersion: version))
+        .AddMeter("toms-meter")
+        .AddConsoleExporter()
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter(opts => { 
+            opts.Endpoint = new Uri("http://otelcol:4317");
+            opts.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
+            
+        });
+});
+
+builder.Logging.AddOpenTelemetry(opts =>
+{
+    opts.AddConsoleExporter();
+    opts.ConfigureResource(configure => 
+    {
+        configure.AddService(serviceName: serviceName, serviceVersion: version);
+    });
+    opts.AddOtlpExporter(opts =>
+    {
+        opts.Endpoint = new Uri("http://otelcol:4317");
+        opts.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
+    });
+});
 
 var MyActivitySource = new ActivitySource(serviceName);
 
-app.MapGet("/hello", async () =>
+builder.Services.AddSingleton<Process>(sp => { return new Process(MyActivitySource); });
+
+var app = builder.Build();
+
+var meter = new Meter("toms-meter");
+var reqCounter = meter.CreateCounter<int>("totalRequests");
+
+app.MapGet("/hello", async (Process process, ILogger<Program> logger) =>
 {
     // Track work inside of the request
+    logger.LogInformation("message: {0}", "blaaaaah");
     await Task.Delay(500);
 
-    var client = new HttpClient();
-    await client.GetAsync("http://api-2/hello");
+    reqCounter.Add(1);
 
-    await Work();
+    var req = CreateRequest(process);
+
+    var client = new HttpClient();
+    await client.PostAsJsonAsync<Request>("http://api-2/hello", req);
+    await client.GetAsync("http://api-2/hello");
 
     return "Hello, World!";
 });
 
 app.Run();
 
-async Task Work()
+Request CreateRequest(Process process)
 {
-    using var a = MyActivitySource!.StartActivity("Working");
-    a?.SetTag("baz", new int[] { 1, 2, 3 });
-    await Task.Delay(1500);
+    var prev = Activity.Current;
+    Activity.Current = null;
+
+    var text = "some-text";
+
+    Request req;
+
+    using (var a = MyActivitySource.StartActivity("CreateRequest", ActivityKind.Producer, process.Context))
+    {
+        a?.SetTag("text", text);
+        req = new Request(a!.Context.SpanId.ToHexString(), a!.Context.TraceId.ToHexString(), text);
+    }
+    
+    Activity.Current = prev;
+    return req;
+}
+
+public record Request(string SpanId, string TraceId, string Text);
+
+public class Process
+{
+    public ActivityContext Context { get; }
+    
+    public Process(ActivitySource source)
+    {
+        var prev = Activity.Current;
+        Activity.Current = null;
+
+        using (var a = source.StartActivity("LongRunningProcess"))
+        {
+            a?.SetTag("id", "id123");
+            a?.SetBaggage("id", "id321");
+            Context = a?.Context ?? new ActivityContext();
+        }
+
+        Activity.Current = prev;
+    }
 }

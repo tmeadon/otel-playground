@@ -2,6 +2,7 @@ using System.Diagnostics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Net.Http.Json;
+using Azure.Monitor.OpenTelemetry.Exporter;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,7 +20,8 @@ builder.Services.AddOpenTelemetryTracing(builder =>
         .AddAspNetCoreInstrumentation()
         .AddSqlClientInstrumentation()
         .AddOtlpExporter(opts => { 
-            opts.Endpoint = new Uri("http://jaeger:4317");
+            opts.Endpoint = new Uri("http://otelcol:4317");
+            opts.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
         });
 });
 
@@ -46,11 +48,42 @@ app.MapGet("/hello", async (HttpContext c) =>
     return "Hello, World!";
 });
 
+app.MapPost("/hello", async (Request req) =>
+{
+    Console.WriteLine(req);
+    await ProcessRequest(req);
+});
+
+
 app.Run();
 
 async Task Work()
 {
     using var a = MyActivitySource!.StartActivity("Working");
     a?.SetTag("baz", new int[] { 1, 2, 3 });
+    
     await Task.Delay(500);
 }
+
+async Task ProcessRequest(Request req)
+{
+    var prev = Activity.Current;
+    Activity.Current = null;
+
+    var text = "some-text";
+
+    var ctx = new ActivityContext(ActivityTraceId.CreateFromString(req.TraceId), ActivitySpanId.CreateFromString(req.SpanId), ActivityTraceFlags.Recorded);
+
+    using (var a = MyActivitySource?.StartActivity("ProcessRequest", ActivityKind.Server, ctx))
+    {
+        a.AddEvent(new ActivityEvent("waiting"));
+        a?.SetTag("text", text);
+        await Task.Delay(200);
+        a.AddEvent(new ActivityEvent("done"));
+
+    }
+
+    Activity.Current = prev;
+}
+
+public record Request(string SpanId, string TraceId, string Text);
