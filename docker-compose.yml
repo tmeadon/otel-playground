@@ -21,20 +21,26 @@ services:
       - "16685:16685"
       - "4317:4317"
       # - "4318:4318"
-  api-1:
+  frontend:
     networks:
       - backend
-    image: api-1:latest
+    image: frontend:latest
     ports:
       - "81:80"
     depends_on:
       - otelcol
-  api-2:
+  backend:
     networks:
       - backend
-    image: api-2:latest
+    image: backend:latest
     ports:
       - "82:80"
+    depends_on:
+      - otelcol
+  worker:
+    networks:
+      - backend
+    image: worker:latest
     depends_on:
       - otelcol
   # zipkin:

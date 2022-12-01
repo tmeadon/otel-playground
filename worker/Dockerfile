@@ -2,7 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build-env
 WORKDIR /app
 
 # Copy app csproj and restore as distinct layers
-COPY api-1.csproj .
+COPY worker.csproj .
 RUN dotnet restore
     
 # Copy everything else and build
@@ -14,4 +14,4 @@ FROM mcr.microsoft.com/dotnet/aspnet:6.0
 WORKDIR /app
 COPY --from=build-env /app/out .
 
-ENTRYPOINT ["dotnet", "api-1.dll"]
+ENTRYPOINT ["dotnet", "worker.dll"]

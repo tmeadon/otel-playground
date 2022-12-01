@@ -455,3 +455,4 @@ $RECYCLE.BIN/
 
 .terraform*
 *.tfstate*
+appsettings.Development.json
